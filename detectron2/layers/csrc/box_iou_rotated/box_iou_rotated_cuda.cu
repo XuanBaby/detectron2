@@ -1,8 +1,9 @@
+#include "hip/hip_runtime.h"
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 #include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <c10/cuda/CUDAGuard.h>
-#include <ATen/cuda/CUDAApplyUtils.cuh>
+#include <ATen/hip/HIPContext.h>
+#include <ATen/hip/impl/HIPGuardImplMasqueradingAsCUDA.h>
+#include <ATen/hip/HIPApplyUtils.cuh>
 #include "box_iou_rotated_utils.h"
 
 namespace detectron2 {
@@ -68,7 +69,7 @@ at::Tensor box_iou_rotated_cuda(
   using scalar_t = float;
   AT_ASSERTM(boxes1.type().is_cuda(), "boxes1 must be a CUDA tensor");
   AT_ASSERTM(boxes2.type().is_cuda(), "boxes2 must be a CUDA tensor");
-  at::cuda::CUDAGuard device_guard(boxes1.device());
+  at::hip::HIPGuardMasqueradingAsCUDA device_guard(boxes1.device());
 
   int num_boxes1 = boxes1.size(0);
   int num_boxes2 = boxes2.size(0);
@@ -99,16 +100,16 @@ at::Tensor box_iou_rotated_cuda(
 
     dim3 blocks(blocks_x, blocks_y);
     dim3 threads(BLOCK_DIM_X, BLOCK_DIM_Y);
-    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    hipStream_t stream = at::hip::getCurrentHIPStreamMasqueradingAsCUDA();
 
-    box_iou_rotated_cuda_kernel<scalar_t><<<blocks, threads, 0, stream>>>(
+   hipLaunchKernelGGL( box_iou_rotated_cuda_kernel<scalar_t>, dim3(blocks), dim3(threads), 0, stream, 
         num_boxes1,
         num_boxes2,
         data1,
         data2,
         (scalar_t*)ious.data_ptr<scalar_t>());
 
-    AT_CUDA_CHECK(cudaGetLastError());
+    AT_CUDA_CHECK(hipGetLastError());
   }
 
   // reshape from 1d array to 2d array

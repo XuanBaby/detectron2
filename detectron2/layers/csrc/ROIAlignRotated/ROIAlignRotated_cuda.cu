@@ -1,8 +1,9 @@
+#include "hip/hip_runtime.h"
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 #include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <c10/cuda/CUDAGuard.h>
-#include <ATen/cuda/CUDAApplyUtils.cuh>
+#include <ATen/hip/HIPContext.h>
+#include <ATen/hip/impl/HIPGuardImplMasqueradingAsCUDA.h>
+#include <ATen/hip/HIPApplyUtils.cuh>
 
 // TODO make it in a common file
 #define CUDA_1D_KERNEL_LOOP(i, n)                            \
@@ -336,7 +337,7 @@ at::Tensor ROIAlignRotated_forward_cuda(
   at::CheckedFrom c = "ROIAlignRotated_forward_cuda";
   at::checkAllSameGPU(c, {input_t, rois_t});
   at::checkAllSameType(c, {input_t, rois_t});
-  at::cuda::CUDAGuard device_guard(input.device());
+  at::hip::HIPGuardMasqueradingAsCUDA device_guard(input.device());
 
   auto num_rois = rois.size(0);
   auto channels = input.size(1);
@@ -346,22 +347,22 @@ at::Tensor ROIAlignRotated_forward_cuda(
   auto output = at::empty(
       {num_rois, channels, pooled_height, pooled_width}, input.options());
   auto output_size = num_rois * pooled_height * pooled_width * channels;
-  cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  hipStream_t stream = at::hip::getCurrentHIPStreamMasqueradingAsCUDA();
 
-  dim3 grid(std::min(
+  dim3 grid(::min(
       at::cuda::ATenCeilDiv(
           static_cast<int64_t>(output_size), static_cast<int64_t>(512)),
       static_cast<int64_t>(4096)));
   dim3 block(512);
 
   if (output.numel() == 0) {
-    AT_CUDA_CHECK(cudaGetLastError());
+    AT_CUDA_CHECK(hipGetLastError());
     return output;
   }
 
   AT_DISPATCH_FLOATING_TYPES(
       input.scalar_type(), "ROIAlignRotated_forward", [&] {
-        RoIAlignRotatedForward<scalar_t><<<grid, block, 0, stream>>>(
+       hipLaunchKernelGGL( RoIAlignRotatedForward<scalar_t>, dim3(grid), dim3(block), 0, stream, 
             output_size,
             input.contiguous().data_ptr<scalar_t>(),
             spatial_scale,
@@ -374,8 +375,8 @@ at::Tensor ROIAlignRotated_forward_cuda(
             rois.contiguous().data_ptr<scalar_t>(),
             output.data_ptr<scalar_t>());
       });
-  cudaDeviceSynchronize();
-  AT_CUDA_CHECK(cudaGetLastError());
+  hipDeviceSynchronize();
+  AT_CUDA_CHECK(hipGetLastError());
   return output;
 }
 
@@ -398,15 +399,15 @@ at::Tensor ROIAlignRotated_backward_cuda(
   at::CheckedFrom c = "ROIAlign_backward_cuda";
   at::checkAllSameGPU(c, {grad_t, rois_t});
   at::checkAllSameType(c, {grad_t, rois_t});
-  at::cuda::CUDAGuard device_guard(grad.device());
+  at::hip::HIPGuardMasqueradingAsCUDA device_guard(grad.device());
 
   auto num_rois = rois.size(0);
   auto grad_input =
       at::zeros({batch_size, channels, height, width}, grad.options());
 
-  cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  hipStream_t stream = at::hip::getCurrentHIPStreamMasqueradingAsCUDA();
 
-  dim3 grid(std::min(
+  dim3 grid(::min(
       at::cuda::ATenCeilDiv(
           static_cast<int64_t>(grad.numel()), static_cast<int64_t>(512)),
       static_cast<int64_t>(4096)));
@@ -414,13 +415,13 @@ at::Tensor ROIAlignRotated_backward_cuda(
 
   // handle possibly empty gradients
   if (grad.numel() == 0) {
-    AT_CUDA_CHECK(cudaGetLastError());
+    AT_CUDA_CHECK(hipGetLastError());
     return grad_input;
   }
 
   AT_DISPATCH_FLOATING_TYPES(
       grad.scalar_type(), "ROIAlignRotated_backward", [&] {
-        RoIAlignRotatedBackwardFeature<scalar_t><<<grid, block, 0, stream>>>(
+       hipLaunchKernelGGL( RoIAlignRotatedBackwardFeature<scalar_t>, dim3(grid), dim3(block), 0, stream, 
             grad.numel(),
             grad.contiguous().data_ptr<scalar_t>(),
             num_rois,
@@ -434,7 +435,7 @@ at::Tensor ROIAlignRotated_backward_cuda(
             grad_input.data_ptr<scalar_t>(),
             rois.contiguous().data_ptr<scalar_t>());
       });
-  AT_CUDA_CHECK(cudaGetLastError());
+  AT_CUDA_CHECK(hipGetLastError());
   return grad_input;
 }
 

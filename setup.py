@@ -13,6 +13,7 @@ from torch.utils.cpp_extension import CUDA_HOME, CppExtension, CUDAExtension
 torch_ver = [int(x) for x in torch.__version__.split(".")[:2]]
 assert torch_ver >= [1, 3], "Requires PyTorch >= 1.3"
 
+rocm_home = os.environ.get('ROCM_HOME') or os.environ.get('ROCM_PATH')
 
 def get_version():
     init_py_path = path.join(path.abspath(path.dirname(__file__)), "detectron2", "__init__.py")
@@ -53,23 +54,35 @@ def get_extensions():
     extra_compile_args = {"cxx": []}
     define_macros = []
 
+#    if (
+#        torch.cuda.is_available() and CUDA_HOME is not None and os.path.isdir(CUDA_HOME)
+#    ) or os.getenv("FORCE_CUDA", "0") == "1":
     if (
         torch.cuda.is_available() and CUDA_HOME is not None and os.path.isdir(CUDA_HOME)
-    ) or os.getenv("FORCE_CUDA", "0") == "1":
+    ) or ( os.getenv("FORCE_CUDA", "0") == "1" ) or (torch.cuda.is_available() and rocm_home is not None):
         extension = CUDAExtension
         sources += source_cuda
         define_macros += [("WITH_CUDA", None)]
-        extra_compile_args["nvcc"] = [
-            "-DCUDA_HAS_FP16=1",
-            "-D__CUDA_NO_HALF_OPERATORS__",
-            "-D__CUDA_NO_HALF_CONVERSIONS__",
-            "-D__CUDA_NO_HALF2_OPERATORS__",
-        ]
+        extra_compile_args["hipcc"] = [
+            "-fPIC",
+            " -fno-gpu-rdc",
+            "-g -O3 -Wall", 
+            "-target x86_64-linux-gnu",
+            ]
+#            "-DCUDA_HAS_FP16=1",
+#            "-D__CUDA_NO_HALF_OPERATORS__",
+#            "-D__CUDA_NO_HALF_CONVERSIONS__",
+#            "-D__CUDA_NO_HALF2_OPERATORS__",
+#        ]
 
         # It's better if pytorch can do this by default ..
-        CC = os.environ.get("CC", None)
-        if CC is not None:
-            extra_compile_args["nvcc"].append("-ccbin={}".format(CC))
+#        CC = os.environ.get("CC", None)
+#        if CC is not None:
+#            extra_compile_args["nvcc"].append("-ccbin={}".format(CC))
+    #rocm
+#    if (torch.cuda.is_available() and rocm_home is not None):
+#        extension = CUDAExtension
+#        sources += source_cuda
 
     include_dirs = [extensions_dir]
 
@@ -115,7 +128,6 @@ def get_model_zoo_configs() -> List[str]:
 
     config_paths = glob.glob("configs/**/*.yaml", recursive=True)
     return config_paths
-
 
 setup(
     name="detectron2",

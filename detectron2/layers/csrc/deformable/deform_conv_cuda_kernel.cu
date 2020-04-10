@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 
 // modified from
@@ -69,11 +70,11 @@
  */
 
 #include <ATen/ATen.h>
-#include <c10/cuda/CUDAGuard.h>
+#include <ATen/hip/impl/HIPGuardImplMasqueradingAsCUDA.h>
 #include <float.h>
 #include <math.h>
 #include <stdio.h>
-#include <THC/THCAtomics.cuh>
+#include <THH/THHAtomics.cuh>
 
 using namespace at;
 
@@ -88,7 +89,7 @@ const int CUDA_NUM_THREADS = 1024;
 const int kMaxGridNum = 65535;
 
 inline int GET_BLOCKS(const int N) {
-  return std::min(kMaxGridNum, (N + CUDA_NUM_THREADS - 1) / CUDA_NUM_THREADS);
+  return ::min(kMaxGridNum, (N + CUDA_NUM_THREADS - 1) / CUDA_NUM_THREADS);
 }
 
 }
@@ -480,8 +481,8 @@ void deformable_im2col(
   int num_kernels = channels * height_col * width_col * parallel_imgs;
   int channel_per_deformable_group = channels / deformable_group;
 
-  at::cuda::CUDAGuard device_guard(data_im.device());
-  cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  at::hip::HIPGuardMasqueradingAsCUDA device_guard(data_im.device());
+  hipStream_t stream = at::hip::getCurrentHIPStreamMasqueradingAsCUDA();
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       data_im.type(), "deformable_im2col_gpu", ([&] {
@@ -489,11 +490,11 @@ void deformable_im2col(
         const scalar_t* data_offset_ = data_offset.data_ptr<scalar_t>();
         scalar_t* data_col_ = data_col.data_ptr<scalar_t>();
 
-        deformable_im2col_gpu_kernel<<<
-            GET_BLOCKS(num_kernels),
-            CUDA_NUM_THREADS,
+       hipLaunchKernelGGL( deformable_im2col_gpu_kernel, 
+            dim3(GET_BLOCKS(num_kernels)),
+            dim3(CUDA_NUM_THREADS),
             0,
-            stream>>>(
+            stream, 
             num_kernels,
             data_im_,
             data_offset_,
@@ -516,9 +517,9 @@ void deformable_im2col(
             data_col_);
       }));
 
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    printf("error in deformable_im2col: %s\n", cudaGetErrorString(err));
+  hipError_t err = hipGetLastError();
+  if (err != hipSuccess) {
+    printf("error in deformable_im2col: %s\n", hipGetErrorString(err));
   }
 }
 
@@ -549,8 +550,8 @@ void deformable_col2im(
       channels * ksize_h * ksize_w * height_col * width_col * parallel_imgs;
   int channel_per_deformable_group = channels / deformable_group;
 
-  at::cuda::CUDAGuard device_guard(data_col.device());
-  cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  at::hip::HIPGuardMasqueradingAsCUDA device_guard(data_col.device());
+  hipStream_t stream = at::hip::getCurrentHIPStreamMasqueradingAsCUDA();
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       data_col.type(), "deformable_col2im_gpu", ([&] {
@@ -558,11 +559,11 @@ void deformable_col2im(
         const scalar_t* data_offset_ = data_offset.data_ptr<scalar_t>();
         scalar_t* grad_im_ = grad_im.data_ptr<scalar_t>();
 
-        deformable_col2im_gpu_kernel<<<
-            GET_BLOCKS(num_kernels),
-            CUDA_NUM_THREADS,
+       hipLaunchKernelGGL( deformable_col2im_gpu_kernel, 
+            dim3(GET_BLOCKS(num_kernels)),
+            dim3(CUDA_NUM_THREADS),
             0,
-            stream>>>(
+            stream, 
             num_kernels,
             data_col_,
             data_offset_,
@@ -585,9 +586,9 @@ void deformable_col2im(
             grad_im_);
       }));
 
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    printf("error in deformable_col2im: %s\n", cudaGetErrorString(err));
+  hipError_t err = hipGetLastError();
+  if (err != hipSuccess) {
+    printf("error in deformable_col2im: %s\n", hipGetErrorString(err));
   }
 }
 
@@ -619,8 +620,8 @@ void deformable_col2im_coord(
   int channel_per_deformable_group =
       channels * ksize_h * ksize_w / deformable_group;
 
-  at::cuda::CUDAGuard device_guard(data_col.device());
-  cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  at::hip::HIPGuardMasqueradingAsCUDA device_guard(data_col.device());
+  hipStream_t stream = at::hip::getCurrentHIPStreamMasqueradingAsCUDA();
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       data_col.type(), "deformable_col2im_coord_gpu", ([&] {
@@ -629,11 +630,11 @@ void deformable_col2im_coord(
         const scalar_t* data_offset_ = data_offset.data_ptr<scalar_t>();
         scalar_t* grad_offset_ = grad_offset.data_ptr<scalar_t>();
 
-        deformable_col2im_coord_gpu_kernel<<<
-            GET_BLOCKS(num_kernels),
-            CUDA_NUM_THREADS,
+       hipLaunchKernelGGL( deformable_col2im_coord_gpu_kernel, 
+            dim3(GET_BLOCKS(num_kernels)),
+            dim3(CUDA_NUM_THREADS),
             0,
-            stream>>>(
+            stream, 
             num_kernels,
             data_col_,
             data_im_,
@@ -1092,8 +1093,8 @@ void modulated_deformable_im2col_cuda(
   const int channel_per_deformable_group = channels / deformable_group;
   const int num_kernels = channels * batch_size * height_col * width_col;
 
-  at::cuda::CUDAGuard device_guard(data_im.device());
-  cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  at::hip::HIPGuardMasqueradingAsCUDA device_guard(data_im.device());
+  hipStream_t stream = at::hip::getCurrentHIPStreamMasqueradingAsCUDA();
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       data_im.type(), "modulated_deformable_im2col_gpu", ([&] {
@@ -1102,11 +1103,11 @@ void modulated_deformable_im2col_cuda(
         const scalar_t* data_mask_ = data_mask.data_ptr<scalar_t>();
         scalar_t* data_col_ = data_col.data_ptr<scalar_t>();
 
-        modulated_deformable_im2col_gpu_kernel<<<
-            GET_BLOCKS(num_kernels),
-            CUDA_NUM_THREADS,
+       hipLaunchKernelGGL( modulated_deformable_im2col_gpu_kernel, 
+            dim3(GET_BLOCKS(num_kernels)),
+            dim3(CUDA_NUM_THREADS),
             0,
-            stream>>>(
+            stream, 
             num_kernels,
             data_im_,
             data_offset_,
@@ -1130,11 +1131,11 @@ void modulated_deformable_im2col_cuda(
             data_col_);
       }));
 
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
+  hipError_t err = hipGetLastError();
+  if (err != hipSuccess) {
     printf(
         "error in modulated_deformable_im2col_cuda: %s\n",
-        cudaGetErrorString(err));
+        hipGetErrorString(err));
   }
 }
 
@@ -1162,8 +1163,8 @@ void modulated_deformable_col2im_cuda(
   const int num_kernels =
       channels * kernel_h * kernel_w * batch_size * height_col * width_col;
 
-  at::cuda::CUDAGuard device_guard(data_col.device());
-  cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  at::hip::HIPGuardMasqueradingAsCUDA device_guard(data_col.device());
+  hipStream_t stream = at::hip::getCurrentHIPStreamMasqueradingAsCUDA();
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       data_col.type(), "modulated_deformable_col2im_gpu", ([&] {
@@ -1172,11 +1173,11 @@ void modulated_deformable_col2im_cuda(
         const scalar_t* data_mask_ = data_mask.data_ptr<scalar_t>();
         scalar_t* grad_im_ = grad_im.data_ptr<scalar_t>();
 
-        modulated_deformable_col2im_gpu_kernel<<<
-            GET_BLOCKS(num_kernels),
-            CUDA_NUM_THREADS,
+       hipLaunchKernelGGL( modulated_deformable_col2im_gpu_kernel, 
+            dim3(GET_BLOCKS(num_kernels)),
+            dim3(CUDA_NUM_THREADS),
             0,
-            stream>>>(
+            stream, 
             num_kernels,
             data_col_,
             data_offset_,
@@ -1200,11 +1201,11 @@ void modulated_deformable_col2im_cuda(
             grad_im_);
       }));
 
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
+  hipError_t err = hipGetLastError();
+  if (err != hipSuccess) {
     printf(
         "error in modulated_deformable_col2im_cuda: %s\n",
-        cudaGetErrorString(err));
+        hipGetErrorString(err));
   }
 }
 
@@ -1235,8 +1236,8 @@ void modulated_deformable_col2im_coord_cuda(
   const int channel_per_deformable_group =
       channels * kernel_h * kernel_w / deformable_group;
 
-  at::cuda::CUDAGuard device_guard(data_col.device());
-  cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  at::hip::HIPGuardMasqueradingAsCUDA device_guard(data_col.device());
+  hipStream_t stream = at::hip::getCurrentHIPStreamMasqueradingAsCUDA();
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       data_col.type(), "modulated_deformable_col2im_coord_gpu", ([&] {
@@ -1247,11 +1248,11 @@ void modulated_deformable_col2im_coord_cuda(
         scalar_t* grad_offset_ = grad_offset.data_ptr<scalar_t>();
         scalar_t* grad_mask_ = grad_mask.data_ptr<scalar_t>();
 
-        modulated_deformable_col2im_coord_gpu_kernel<<<
-            GET_BLOCKS(num_kernels),
-            CUDA_NUM_THREADS,
+       hipLaunchKernelGGL( modulated_deformable_col2im_coord_gpu_kernel, 
+            dim3(GET_BLOCKS(num_kernels)),
+            dim3(CUDA_NUM_THREADS),
             0,
-            stream>>>(
+            stream, 
             num_kernels,
             data_col_,
             data_im_,
@@ -1277,11 +1278,11 @@ void modulated_deformable_col2im_coord_cuda(
             grad_offset_,
             grad_mask_);
       }));
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
+  hipError_t err = hipGetLastError();
+  if (err != hipSuccess) {
     printf(
         "error in modulated_deformable_col2im_coord_cuda: %s\n",
-        cudaGetErrorString(err));
+        hipGetErrorString(err));
   }
 }
 

@@ -1,8 +1,9 @@
+#include "hip/hip_runtime.h"
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 #include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <c10/cuda/CUDAGuard.h>
-#include <ATen/cuda/CUDAApplyUtils.cuh>
+#include <ATen/hip/HIPContext.h>
+#include <ATen/hip/impl/HIPGuardImplMasqueradingAsCUDA.h>
+#include <ATen/hip/HIPApplyUtils.cuh>
 #include "../box_iou_rotated/box_iou_rotated_utils.h"
 
 using namespace detectron2;
@@ -78,7 +79,7 @@ at::Tensor nms_rotated_cuda(
   // using scalar_t = float;
   AT_ASSERTM(dets.type().is_cuda(), "dets must be a CUDA tensor");
   AT_ASSERTM(scores.type().is_cuda(), "scores must be a CUDA tensor");
-  at::cuda::CUDAGuard device_guard(dets.device());
+  at::hip::HIPGuardMasqueradingAsCUDA device_guard(dets.device());
 
   auto order_t = std::get<1>(scores.sort(0, /* descending=*/true));
   auto dets_sorted = dets.index_select(0, order_t);
@@ -92,11 +93,11 @@ at::Tensor nms_rotated_cuda(
 
   dim3 blocks(col_blocks, col_blocks);
   dim3 threads(threadsPerBlock);
-  cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+  hipStream_t stream = at::hip::getCurrentHIPStreamMasqueradingAsCUDA();
 
   AT_DISPATCH_FLOATING_TYPES_AND_HALF(
       dets_sorted.type(), "nms_rotated_kernel_cuda", [&] {
-        nms_rotated_cuda_kernel<scalar_t><<<blocks, threads, 0, stream>>>(
+       hipLaunchKernelGGL( nms_rotated_cuda_kernel<scalar_t>, dim3(blocks), dim3(threads), 0, stream, 
             dets_num,
             iou_threshold,
             dets_sorted.data<scalar_t>(),
@@ -127,7 +128,7 @@ at::Tensor nms_rotated_cuda(
     }
   }
 
-  AT_CUDA_CHECK(cudaGetLastError());
+  AT_CUDA_CHECK(hipGetLastError());
   return order_t.index(
       {keep.narrow(/*dim=*/0, /*start=*/0, /*length=*/num_to_keep)
            .to(order_t.device(), keep.scalar_type())});
